@@ -1,0 +1,531 @@
+#include "board/board.hpp"
+#include "node.hpp"
+#include "globals.hpp"
+#include "math_lib/maths.hpp"
+#include <cmath>
+#include <vector>
+#include <stdio.h>
+#include <algorithm>
+
+#include <cmath>
+#include <vector>
+#include <stdio.h>
+
+#define evenSampling 500 //10000
+#define C  1.2 //1.41421
+#define MAX_SIMULATION  1640000//64000000
+#define BATCH_SIMULATION_NUM 10000
+#define EPSILON 0.00001
+#define TEMPERATUE 5
+#define PRUNE_THRESHOLD 0.1  // Threshold for pruning nodes
+#define PRUNE_FREQUENCY 20 // Frequency of pruning checks
+
+int TOTAL_SIMULATION_COUNT;
+
+node::node(Board board, int ply, int p_id, int depth, int Nchild, int Ntotal, long double CsqrtlogN, long double sqrtN, int wins, long double WR, bool terminal, bool pruned)
+    : board(board), ply(ply), p_id(p_id), depth(depth), Nchild(Nchild), Ntotal(Ntotal), CsqrtlogN(CsqrtlogN), sqrtN(sqrtN), wins(wins), WR(WR), terminal(terminal), pruned(pruned){
+    
+}
+
+node::node(){
+
+}
+
+
+// add child to the node
+void node::addchild (int child_id){
+    // assign the current child index 
+    this->c_id[this->Nchild] = child_id;
+
+
+
+    // increase child number by 1
+    this->Nchild++;
+   
+    
+}
+
+bool comparePiecePosition(int arr1[2][6], int arr2[2][6]){
+    for (int i = 0; i < 2; i++)
+    {
+        for (int j = 0; j < 6; j++)
+        {
+            if (arr1[i][j] != arr2[i][j])
+            {
+                return false;
+                /* code */
+            }
+            
+            /* code */
+        }
+        
+        /* code */
+    }
+    return true;
+}
+
+// Function to find the child node that is the succesor of current board situation
+int node::findCurrent(Board currentBoard){
+
+    for (int i = 0; i < Nchild; i++)
+    {
+       
+        /*
+            Check
+            1) piece position of child
+            2) dice of child
+            3) moving color of child
+        */
+        if (comparePiecePosition(nodeArray[c_id[i]].board.piece_position,currentBoard.piece_position) && nodeArray[c_id[i]].board.dice == currentBoard.dice && nodeArray[c_id[i]].board.moving_color == currentBoard.moving_color)
+        {
+            // if found, return the index of child in nodeArray
+            return c_id[i];
+        }
+        
+        
+        /* code */
+    }
+    // not found in the child
+    printf("not found %d\n ",Nchild);
+    return c_id[0];
+    
+}
+
+// Node Expansion ----------------------------------------------------------------------------------//
+
+// Function to do even sampling
+void node:: initialSampling(){
+    int deltaW = 0;
+    for (int i = 0; i < evenSampling; i++)
+    {
+        if (board.simulate() == true)
+        {
+            deltaW++;
+            /* code */
+        }
+        /* code */
+    }
+    update(evenSampling,deltaW);
+    backpropagation(evenSampling,deltaW);
+    
+}
+
+// Function to add new node into nodeArray
+void node::addNode(int id){
+
+    // if the current node is already the leaf node, label and end the function
+    if (this->board.check_winner() == true)
+    {
+        printf("end \n");
+        return;
+        /* code */
+    }
+    
+    // generate moves
+    this->board.generate_moves();
+
+   for (int i = 0; i < this->board.move_count; i++)
+   {
+        Board child_copy = (this->board);
+        child_copy.move(i);
+
+        bool terminalNode = child_copy.check_winner();
+        
+        // create a new node
+        nodeArray[nodeCounter] = node(child_copy,ply+1,id,depth+1,0,0,0,0,0,0,terminalNode,false);
+
+        // assign the node to its parent
+        addchild(nodeCounter);
+
+        // do even sampling once a node is expanded
+        nodeArray[nodeCounter].initialSampling();
+
+        // increase nodeCounter by 1
+        nodeCounter++;
+
+        
+   }
+}
+
+
+
+
+
+// void node::progressivePruning() {
+//     // Constants to be tuned empirically
+//     const float rd = 1.0;  // Adjustment factor
+//     const float sigma_equal = 0.1;  // Standard deviation for equality
+//     const int MIN_SIMULATIONS = 100;  // Minimal number of random games
+//     const int MAX_ITERATIONS_MULTIPLIER = 10000;
+
+//     // Only prune if enough simulations have been performed
+//     if (Ntotal < MIN_SIMULATIONS * Nchild) return;
+
+//     // Track pruned and active moves
+//     std::vector<bool> pruned(Nchild, false);
+//     int activeMoves = Nchild;
+
+//     // Iteration limit
+//     int maxIterations = MAX_ITERATIONS_MULTIPLIER * Nchild;
+
+//     while (activeMoves > 1 && maxIterations > 0) {
+//         bool pruningMade = false;
+
+//         // Compare each pair of moves
+//         for (int i = 0; i < Nchild; i++) {
+//             if (pruned[i]) continue;
+
+//             for (int j = 0; j < Nchild; j++) {
+//                 if (i == j || pruned[j]) continue;
+
+//                 node& nodeI = nodeArray[c_id[i]];
+//                 node& nodeJ = nodeArray[c_id[j]];
+
+//                 // Calculate expected outcomes
+//                 float muI = nodeI.WR;
+//                 float muJ = nodeJ.WR;
+//                 float sigmaI = std::sqrt((nodeI.WR * (1 - nodeI.WR)) / nodeI.Ntotal);
+//                 float sigmaJ = std::sqrt((nodeJ.WR * (1 - nodeJ.WR)) / nodeJ.Ntotal);
+
+//                 float muL = muI - rd * sigmaI;
+//                 float muR = muJ + rd * sigmaJ;
+
+//                 // Pruning conditions
+//                 bool staticallyInferior = (muL < muR) && 
+//                                           (sigmaI < sigma_equal) && 
+//                                           (sigmaJ < sigma_equal);
+
+//                 if (staticallyInferior) {
+//                     // Soft pruning - mark as pruned
+//                     pruned[i] = true;
+//                     activeMoves--;
+//                     pruningMade = true;
+//                     break;
+//                 }
+//             }
+
+//             if (pruningMade) break;
+//         }
+
+//         // Stop if only one move remains
+//         if (activeMoves <= 1) break;
+
+//         maxIterations--;
+//     }
+
+//     // Mark pruned nodes
+//     for (int i = 0; i < Nchild; i++) {
+//         if (pruned[i]) {
+//             nodeArray[c_id[i]].pruned = true;
+//             printf("pruned \n");
+//         }
+//     }
+// }
+
+// void node::MCTS() {
+//     printf("enter");
+//     TOTAL_SIMULATION_COUNT = 0;
+//     int pruneCounter = 0;
+//     while (TOTAL_SIMULATION_COUNT < MAX_SIMULATION) {
+//         Selection(currentNode);
+//         // Periodic progressive pruning
+//         pruneCounter++;
+//         if (pruneCounter % PRUNE_FREQUENCY == 0) {
+//             printf("pruning \n");
+//             progressivePruning();
+//         }
+        
+//         if (nodeArray[currentNode].terminal) {
+//             break;
+//         }
+//     }
+// }
+
+
+void Selection(int id) {
+    // If current simulation count exceeds maximum, stop
+    if (TOTAL_SIMULATION_COUNT >= MAX_SIMULATION || nodeArray[currentNode].terminal == true) {
+        printf("Stopping recursion. Total simulations: %d\n", TOTAL_SIMULATION_COUNT);
+        return;
+    }
+
+    // If the current node is terminal, backtrack to the root
+    if (nodeArray[id].terminal) {
+        Selection(currentNode);
+        return;
+    }
+
+    // If the current node has no children, generate children
+    if (nodeArray[id].Nchild == 0) {
+        nodeArray[id].addNode(id);
+        TOTAL_SIMULATION_COUNT += evenSampling * nodeArray[id].Nchild;
+    }
+
+    // Determine if the current node is terminal and handle child selection
+    bool isTerminal = true;
+    int child_selected = -1;
+    float best_ucb = (nodeArray[id].board.moving_color == RED)
+        ? -std::numeric_limits<float>::infinity() // Maximizing for RED
+        : std::numeric_limits<float>::infinity(); // Minimizing for BLUE
+
+    for (int i = 0; i < nodeArray[id].Nchild; i++) {
+        node& childNode = nodeArray[nodeArray[id].c_id[i]];
+
+        // Minimax pruning for RED (cut losses)
+        if (nodeArray[id].board.moving_color == RED && childNode.WR == 0) {
+            nodeArray[id].WR = 0; // RED loses
+            nodeArray[id].terminal = true;
+            Selection(currentNode);
+            return;
+        }
+
+        // Minimax pruning for BLUE (cut losses)
+        if (nodeArray[id].board.moving_color == BLUE && childNode.WR == 1) {
+            nodeArray[id].WR = 1; // BLUE loses
+            nodeArray[id].terminal = true;
+            Selection(currentNode);
+            return;
+        }
+
+        // Skip terminal children
+        if (childNode.terminal) {
+            continue;
+        }
+
+        // Non-terminal child found
+        isTerminal = false;
+
+        // Calculate UCB for child
+        float child_ucb = fast_UCB(childNode.wins, childNode.Ntotal, TOTAL_SIMULATION_COUNT);
+
+        // Select best UCB based on node color
+        if (nodeArray[id].board.moving_color == RED) {
+            // RED wants the highest UCB (maximizing player)
+            if (child_ucb > best_ucb) {
+                child_selected = i;
+                best_ucb = child_ucb;
+            }
+        } else {
+            // BLUE wants the lowest UCB (minimizing player)
+            if (child_ucb < best_ucb) {
+                child_selected = i;
+                best_ucb = child_ucb;
+            }
+        }
+    }
+
+    // If all children are terminal, mark the node as terminal and backtrack
+    if (isTerminal) {
+        nodeArray[id].terminal = true;
+        Selection(currentNode);
+        return;
+    }
+
+    // Continue selection with the chosen child
+    if (child_selected != -1) {
+        Selection(nodeArray[id].c_id[child_selected]);
+    } else {
+        // Handle edge case: No valid child selected (shouldn't happen if logic is correct)
+        printf("Error: No valid child selected for id=%d\n", id);
+    }
+}
+
+
+
+// // selection -----------------------
+// void Selection(int id) {
+
+//     // If current simulation count exceeds maximum, stop
+//     if (TOTAL_SIMULATION_COUNT >= MAX_SIMULATION || nodeArray[currentNode].terminal == true) {
+//          printf("return %d total \n",TOTAL_SIMULATION_COUNT);
+//         return;
+//     }
+
+    
+
+
+//     // if the current pv node is terminal node or all children have been explored
+//     // return back to the the root
+//     if (nodeArray[id].terminal == true)
+//     {
+//         //  printf("return %d total ter \n",TOTAL_SIMULATION_COUNT);
+//         // printf("haha recursive call: id=%d %d\n", id,currentNode);
+//         Selection(currentNode);
+//         // return;
+//         // printf("After recursive call: id=%d\n", id);
+
+//     }
+    
+//     // if the current pv node is not a terminal node, and it has no child
+//     // explore the children 
+//     if (nodeArray[id].Nchild == 0)
+//     {
+//         nodeArray[id].addNode(id);
+//         TOTAL_SIMULATION_COUNT += evenSampling*nodeArray[id].Nchild;
+//         // printf("added %d\n",TOTAL_SIMULATION_COUNT);
+//     }
+
+//     // if the current pv node is not a terminal node, and it has children
+//     // select the next pv node from its children
+
+//     // at the same time check whether it is terminal, return 
+//     bool isTerminal = true;
+//     int child_selected = -1;
+
+//     // assume that the children are blue, want to find the minimum number
+//     float best_ucb = (nodeArray[nodeArray[id].c_id[0]].board.moving_color == RED) 
+//         ? -std::numeric_limits<float>::infinity() 
+//         : std::numeric_limits<float>::infinity();
+    
+
+    
+//     for (int i = 0; i < nodeArray[id].Nchild; i++)
+//     {
+
+//         node childNode = nodeArray[nodeArray[id].c_id[i]];
+
+//         // if the current id is red, then blue can choose
+//         if (nodeArray[id].board.moving_color == RED && childNode.WR == 1)
+//         {
+//             // no need to do simulation any more
+//             nodeArray[id].WR = 1;
+//             nodeArray[id].terminal = true;
+//             // printf("cut lose %d\n",TOTAL_SIMULATION_COUNT);
+//             Selection(currentNode);
+//             // return;
+
+
+//             /* code */
+//         }
+
+//          // if the current id is blue, then check whether the child has 0 or not
+//         if (nodeArray[id].board.moving_color == BLUE && childNode.WR == 0)
+//         {
+//             nodeArray[id].WR = 0;
+//             nodeArray[id].terminal = true;
+//             // printf("cut win %d\n",TOTAL_SIMULATION_COUNT);
+//             Selection(currentNode);
+//             // return;
+
+            
+//             /* code */
+//         }
+        
+//         // if the child is a terminal node or all children have been explored
+//         if (childNode.terminal) {
+//             // printf("Skipping terminal child %d\n", nodeArray[id].c_id[i]);
+//             continue;
+//         }
+
+//         // Non-terminal child found
+//         isTerminal = false;
+//         // printf("now doing %d \n",nodeArray[id].c_id[i]);
+        
+
+//         float child_ucb = fast_UCB(childNode.wins, childNode.Ntotal, TOTAL_SIMULATION_COUNT);
+        
+//         // do temperature
+//         // Randomness between 0 and random_factor
+//         // float random_value = ((rand() % 1000) / 1000.0f) * 0.15;
+//         // child_ucb += random_value;
+
+        
+//         if (childNode.board.moving_color == RED) {
+//             // For RED (minimizing player), find LOWEST UCB
+//             if (child_ucb > best_ucb) {
+//                 child_selected = i;
+//                 best_ucb = child_ucb;
+//             }
+//         } else {
+//             // For BLUE (maximizing player), find HIGHEST UCB
+//             if (child_ucb < best_ucb) {
+//                 child_selected = i;
+//                 best_ucb = child_ucb;
+//             }
+//         }
+        
+        
+//         /* code */
+//     }
+//     // printf("%f \n",best_ucb);
+//     // if all children have been explored, label this node as terminal and back to its parent node
+//     if (isTerminal)
+//     {
+//         nodeArray[id].terminal = true;
+//         // printf("return %d total de\n",TOTAL_SIMULATION_COUNT);
+//         // printf("harrr recursive call: id=%d\n", id);
+//         Selection(currentNode);
+//         // return;
+//         // printf("After recursive call: id=%d\n", id);
+
+        
+//     }
+//     // if still not terminal, propogate to the child selected
+//     Selection(nodeArray[id].c_id[child_selected]);
+
+// }
+
+void node::MCTS(){
+    TOTAL_SIMULATION_COUNT = 0;
+    printf("mcts");
+    Selection(currentNode);
+    
+    
+    
+}
+
+
+// update simulation ---------
+
+// A function to update all details after simulation
+void node::update(int deltaN, int deltaW){
+    Ntotal += deltaN;
+    // CsqrtlogN = C*sqrt(log((long double)Ntotal));
+    // sqrtN = sqrt((long double) Ntotal);
+    wins += deltaW;
+    WR = (long double)wins / (long double)Ntotal;
+}
+
+// Back Propagation ----------------------------------------------------
+
+// A function to do backpropagation after each simulation batch
+void node::backpropagation(int deltaN, int deltaW){
+    // find the parent id of the current node
+    int parent_id = p_id;
+
+    // loop until the node is the root node
+    while (parent_id != currentNode) {
+        // printf("Backpropagating from node: %d\n", parent_id);
+        // printf("Parent node ID: %d\n", nodeArray[parent_id].p_id);
+
+        // Update the parent node
+        nodeArray[parent_id].update(deltaN, deltaW);
+
+        // Update parent_id
+        parent_id = nodeArray[parent_id].p_id;
+    }
+        
+}
+
+
+// A function to get all the child
+void node::getChild(std::vector<int> &nodesInConsideration) {
+    for (int i = 0; i < this->Nchild; i++) {
+        // printf("Processing child %d of node %ld\n", c_id[i], this - nodeArray);
+
+        // Validate `c_id[i]`
+        if (c_id[i] < 0 || c_id[i] >= 60000) { // Assuming `nodeArray` has 600000 elements
+            // printf("parent id %d children %d\n",p_id,this->Nchild);
+            printf("Invalid child index: %d\n", c_id[i]);
+            return;
+        }
+
+        // Push it into the list
+        nodesInConsideration.push_back(this->c_id[i]);
+
+        // Recursive call
+        if (nodeArray[c_id[i]].Nchild != 0) {
+            nodeArray[c_id[i]].getChild(nodesInConsideration);
+        }
+    }
+}
