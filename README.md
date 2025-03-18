@@ -9,7 +9,7 @@ This repository contains implementations of two search algorithms used in game t
 This algorithm is implemented for the EinStein würfelt nicht! (EWN) game with deterministic rules.
 
 ## **IDA* (Iterative Deepening A*)**
-This algorithm is implemented for a path finding game. Some heuristics functions are included to make this algorithm more efficient including chebyshev distance and unuseable dice count
+This algorithm is implemented for a path finding game. Some heuristics functions are included to make this algorithm more efficient including chebyshev distance and unusable dice count
 
 ## **Acknowledgements**
 Some parts of the code were provided by the **Teaching Assistant (TA) and Lecturer** as part of the course materials for **Computer Gaming Theory**. Specifically:
